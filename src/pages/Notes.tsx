@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Upload, FileText, Loader2, Download, Trash2 } from 'lucide-react';
+import { Upload, FileText, Loader2, Download, Trash2, RefreshCw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
@@ -14,6 +14,7 @@ interface Note {
   title: string;
   summary: string | null;
   keywords: string[] | null;
+  questions: any;
   mindmap: any | null;
   file_name: string | null;
   created_at: string;
@@ -88,6 +89,7 @@ export default function Notes() {
           original_text: noteText,
           summary: aiData.summary,
           keywords: aiData.keywords,
+          questions: aiData.questions,
           mindmap: aiData.mindmap,
           file_name: selectedFile?.name || null
         })
@@ -121,6 +123,61 @@ export default function Notes() {
       toast.success('Note deleted');
       fetchNotes();
     }
+  };
+
+  const handleRegenerate = async (note: Note) => {
+    if (!note.title) return;
+    
+    setProcessing(true);
+    try {
+      const { data: aiData, error: aiError } = await supabase.functions.invoke('process-note', {
+        body: { title: note.title, text: note.summary || '' }
+      });
+
+      if (aiError) throw aiError;
+
+      const { error: updateError } = await supabase
+        .from('notes')
+        .update({
+          summary: aiData.summary,
+          keywords: aiData.keywords,
+          questions: aiData.questions,
+          mindmap: aiData.mindmap,
+        })
+        .eq('id', note.id);
+
+      if (updateError) throw updateError;
+
+      toast.success('Note regenerated!');
+      fetchNotes();
+    } catch (error) {
+      console.error('Error regenerating note:', error);
+      toast.error('Failed to regenerate note');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const downloadSummary = (note: Note) => {
+    const content = `# ${note.title}\n\n## Summary\n${note.summary || 'No summary available'}\n\n## Keywords\n${(note.keywords || []).join(', ')}\n\n## Study Questions\n${(note.questions || []).map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${note.title}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadQuestions = (note: Note) => {
+    const content = `# Study Questions: ${note.title}\n\n${(note.questions || []).map((q, i) => `${i + 1}. ${q}`).join('\n\n')}`;
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${note.title}-questions.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -220,22 +277,45 @@ export default function Notes() {
                         {new Date(note.created_at).toLocaleDateString()}
                       </CardDescription>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDelete(note.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleRegenerate(note)}
+                        disabled={processing}
+                        title="Regenerate with AI"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDelete(note.id)}
+                        title="Delete note"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {note.summary && (
                     <div>
-                      <h4 className="font-semibold mb-2">Summary</h4>
-                      <p className="text-sm text-muted-foreground">{note.summary}</p>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-semibold">Summary</h4>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => downloadSummary(note)}
+                        >
+                          <Download className="h-4 w-4 mr-1" />
+                          Download
+                        </Button>
+                      </div>
+                      <p className="text-sm text-muted-foreground whitespace-pre-line">{note.summary}</p>
                     </div>
                   )}
+                  
                   {note.keywords && note.keywords.length > 0 && (
                     <div>
                       <h4 className="font-semibold mb-2">Keywords</h4>
@@ -249,6 +329,30 @@ export default function Notes() {
                           </span>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {note.questions && note.questions.length > 0 && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-semibold">Study Questions</h4>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => downloadQuestions(note)}
+                        >
+                          <Download className="h-4 w-4 mr-1" />
+                          Download
+                        </Button>
+                      </div>
+                      <ul className="space-y-2">
+                        {note.questions.map((question, idx) => (
+                          <li key={idx} className="text-sm text-muted-foreground flex gap-2">
+                            <span className="font-medium text-primary min-w-[24px]">{idx + 1}.</span>
+                            <span>{question}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
                 </CardContent>
