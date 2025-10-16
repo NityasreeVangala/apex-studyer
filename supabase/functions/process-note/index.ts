@@ -33,7 +33,7 @@ serve(async (req) => {
           },
           {
             role: 'user',
-            content: `Please analyze this study material titled "${title}":\n\n${text}\n\nProvide:\n1. A concise summary (2-3 paragraphs)\n2. 5-10 key keywords\n3. A mindmap structure with main topics and subtopics`
+            content: `Please analyze this study material titled "${title}":\n\n${text}\n\nProvide:\n1. A concise summary (2-3 paragraphs)\n2. 5-10 key keywords\n3. 5-10 intelligent study questions based on the content\n4. A mindmap structure with main topics and subtopics`
           }
         ],
         tools: [{
@@ -49,6 +49,11 @@ serve(async (req) => {
                   type: "array", 
                   items: { type: "string" },
                   description: "Important keywords and concepts"
+                },
+                questions: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "5-10 intelligent study questions based on the content"
                 },
                 mindmap: {
                   type: "object",
@@ -67,7 +72,7 @@ serve(async (req) => {
                   }
                 }
               },
-              required: ["summary", "keywords"],
+              required: ["summary", "keywords", "questions"],
               additionalProperties: false
             }
           }
@@ -87,6 +92,7 @@ serve(async (req) => {
     const result = toolCall ? JSON.parse(toolCall.function.arguments) : {
       summary: 'Could not generate summary',
       keywords: [],
+      questions: [],
       mindmap: null
     };
 
