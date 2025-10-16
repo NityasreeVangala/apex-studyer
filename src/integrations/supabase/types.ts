@@ -50,7 +50,6 @@ export type Database = {
           keywords: string[] | null
           mindmap: Json | null
           original_text: string | null
-          questions: Json | null
           summary: string | null
           title: string
           updated_at: string | null
@@ -64,7 +63,6 @@ export type Database = {
           keywords?: string[] | null
           mindmap?: Json | null
           original_text?: string | null
-          questions?: Json | null
           summary?: string | null
           title: string
           updated_at?: string | null
@@ -78,7 +76,6 @@ export type Database = {
           keywords?: string[] | null
           mindmap?: Json | null
           original_text?: string | null
-          questions?: Json | null
           summary?: string | null
           title?: string
           updated_at?: string | null

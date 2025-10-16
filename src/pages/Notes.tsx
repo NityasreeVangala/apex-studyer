@@ -4,26 +4,20 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Upload, FileText, Loader2, Download, Trash2, RefreshCw } from 'lucide-react';
+import { Upload, FileText, Loader2, Download, Trash2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
-import * as pdfjsLib from 'pdfjs-dist';
-import mammoth from 'mammoth';
 
 interface Note {
   id: string;
   title: string;
   summary: string | null;
   keywords: string[] | null;
-  questions: any;
   mindmap: any | null;
   file_name: string | null;
   created_at: string;
 }
-
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 export default function Notes() {
   const { user } = useAuth();
@@ -33,7 +27,6 @@ export default function Notes() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [noteTitle, setNoteTitle] = useState('');
   const [noteText, setNoteText] = useState('');
-  const [extracting, setExtracting] = useState(false);
 
   useEffect(() => {
     fetchNotes();
@@ -57,57 +50,15 @@ export default function Notes() {
     setLoading(false);
   };
 
-  const extractTextFromPDF = async (file: File): Promise<string> => {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    let fullText = '';
-
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .map((item: any) => item.str)
-        .join(' ');
-      fullText += pageText + '\n\n';
-    }
-
-    return fullText.trim();
-  };
-
-  const extractTextFromDOCX = async (file: File): Promise<string> => {
-    const arrayBuffer = await file.arrayBuffer();
-    const result = await mammoth.extractRawText({ arrayBuffer });
-    return result.value;
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.type === 'application/pdf' || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      setSelectedFile(file);
-      setNoteTitle(file.name.split('.')[0]);
-      
-      // Automatically extract text from the file
-      setExtracting(true);
-      try {
-        let extractedText = '';
-        if (file.type === 'application/pdf') {
-          extractedText = await extractTextFromPDF(file);
-          toast.success('PDF text extracted successfully!');
-        } else {
-          extractedText = await extractTextFromDOCX(file);
-          toast.success('DOCX text extracted successfully!');
-        }
-        setNoteText(extractedText);
-      } catch (error) {
-        console.error('Error extracting text:', error);
-        toast.error('Failed to extract text from file. Please try pasting the text manually.');
-      } finally {
-        setExtracting(false);
+    if (file) {
+      if (file.type === 'application/pdf' || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        setSelectedFile(file);
+        setNoteTitle(file.name.split('.')[0]);
+      } else {
+        toast.error('Please upload a PDF or DOCX file');
       }
-    } else {
-      toast.error('Please upload a PDF or DOCX file');
     }
   };
 
@@ -137,7 +88,6 @@ export default function Notes() {
           original_text: noteText,
           summary: aiData.summary,
           keywords: aiData.keywords,
-          questions: aiData.questions,
           mindmap: aiData.mindmap,
           file_name: selectedFile?.name || null
         })
@@ -173,61 +123,6 @@ export default function Notes() {
     }
   };
 
-  const handleRegenerate = async (note: Note) => {
-    if (!note.title) return;
-    
-    setProcessing(true);
-    try {
-      const { data: aiData, error: aiError } = await supabase.functions.invoke('process-note', {
-        body: { title: note.title, text: note.summary || '' }
-      });
-
-      if (aiError) throw aiError;
-
-      const { error: updateError } = await supabase
-        .from('notes')
-        .update({
-          summary: aiData.summary,
-          keywords: aiData.keywords,
-          questions: aiData.questions,
-          mindmap: aiData.mindmap,
-        })
-        .eq('id', note.id);
-
-      if (updateError) throw updateError;
-
-      toast.success('Note regenerated!');
-      fetchNotes();
-    } catch (error) {
-      console.error('Error regenerating note:', error);
-      toast.error('Failed to regenerate note');
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const downloadSummary = (note: Note) => {
-    const content = `# ${note.title}\n\n## Summary\n${note.summary || 'No summary available'}\n\n## Keywords\n${(note.keywords || []).join(', ')}\n\n## Study Questions\n${(note.questions || []).map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
-    const blob = new Blob([content], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${note.title}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const downloadQuestions = (note: Note) => {
-    const content = `# Study Questions: ${note.title}\n\n${(note.questions || []).map((q, i) => `${i + 1}. ${q}`).join('\n\n')}`;
-    const blob = new Blob([content], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${note.title}-questions.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="space-y-8 animate-fade-in">
       <div>
@@ -260,18 +155,12 @@ export default function Notes() {
               <Label htmlFor="note-text">Content</Label>
               <Textarea
                 id="note-text"
-                placeholder="Paste your study material here or upload a file above..."
+                placeholder="Paste your study material here..."
                 value={noteText}
                 onChange={(e) => setNoteText(e.target.value)}
-                disabled={processing || extracting}
+                disabled={processing}
                 rows={8}
               />
-              {extracting && (
-                <p className="text-sm text-muted-foreground flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Extracting text from document...
-                </p>
-              )}
             </div>
 
             <div className="flex gap-4">
@@ -295,9 +184,9 @@ export default function Notes() {
               </div>
             </div>
 
-            <Button type="submit" className="w-full" disabled={processing || extracting}>
-              {(processing || extracting) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {extracting ? 'Extracting Text...' : processing ? 'Processing with AI...' : 'Process with AI'}
+            <Button type="submit" className="w-full" disabled={processing}>
+              {processing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Process with AI
             </Button>
           </form>
         </CardContent>
@@ -331,45 +220,22 @@ export default function Notes() {
                         {new Date(note.created_at).toLocaleDateString()}
                       </CardDescription>
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleRegenerate(note)}
-                        disabled={processing}
-                        title="Regenerate with AI"
-                      >
-                        <RefreshCw className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(note.id)}
-                        title="Delete note"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDelete(note.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {note.summary && (
                     <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-semibold">Summary</h4>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => downloadSummary(note)}
-                        >
-                          <Download className="h-4 w-4 mr-1" />
-                          Download
-                        </Button>
-                      </div>
-                      <p className="text-sm text-muted-foreground whitespace-pre-line">{note.summary}</p>
+                      <h4 className="font-semibold mb-2">Summary</h4>
+                      <p className="text-sm text-muted-foreground">{note.summary}</p>
                     </div>
                   )}
-                  
                   {note.keywords && note.keywords.length > 0 && (
                     <div>
                       <h4 className="font-semibold mb-2">Keywords</h4>
@@ -383,30 +249,6 @@ export default function Notes() {
                           </span>
                         ))}
                       </div>
-                    </div>
-                  )}
-
-                  {note.questions && note.questions.length > 0 && (
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-semibold">Study Questions</h4>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => downloadQuestions(note)}
-                        >
-                          <Download className="h-4 w-4 mr-1" />
-                          Download
-                        </Button>
-                      </div>
-                      <ul className="space-y-2">
-                        {note.questions.map((question, idx) => (
-                          <li key={idx} className="text-sm text-muted-foreground flex gap-2">
-                            <span className="font-medium text-primary min-w-[24px]">{idx + 1}.</span>
-                            <span>{question}</span>
-                          </li>
-                        ))}
-                      </ul>
                     </div>
                   )}
                 </CardContent>
