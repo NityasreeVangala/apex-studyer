@@ -8,6 +8,8 @@ import { Upload, FileText, Loader2, Download, Trash2, RefreshCw } from 'lucide-r
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import * as pdfjsLib from 'pdfjs-dist';
+import mammoth from 'mammoth';
 
 interface Note {
   id: string;
@@ -20,6 +22,9 @@ interface Note {
   created_at: string;
 }
 
+// Configure PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
 export default function Notes() {
   const { user } = useAuth();
   const [notes, setNotes] = useState<Note[]>([]);
@@ -28,6 +33,7 @@ export default function Notes() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [noteTitle, setNoteTitle] = useState('');
   const [noteText, setNoteText] = useState('');
+  const [extracting, setExtracting] = useState(false);
 
   useEffect(() => {
     fetchNotes();
@@ -51,15 +57,57 @@ export default function Notes() {
     setLoading(false);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const extractTextFromPDF = async (file: File): Promise<string> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let fullText = '';
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(' ');
+      fullText += pageText + '\n\n';
+    }
+
+    return fullText.trim();
+  };
+
+  const extractTextFromDOCX = async (file: File): Promise<string> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer });
+    return result.value;
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.type === 'application/pdf' || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        setSelectedFile(file);
-        setNoteTitle(file.name.split('.')[0]);
-      } else {
-        toast.error('Please upload a PDF or DOCX file');
+    if (!file) return;
+
+    if (file.type === 'application/pdf' || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      setSelectedFile(file);
+      setNoteTitle(file.name.split('.')[0]);
+      
+      // Automatically extract text from the file
+      setExtracting(true);
+      try {
+        let extractedText = '';
+        if (file.type === 'application/pdf') {
+          extractedText = await extractTextFromPDF(file);
+          toast.success('PDF text extracted successfully!');
+        } else {
+          extractedText = await extractTextFromDOCX(file);
+          toast.success('DOCX text extracted successfully!');
+        }
+        setNoteText(extractedText);
+      } catch (error) {
+        console.error('Error extracting text:', error);
+        toast.error('Failed to extract text from file. Please try pasting the text manually.');
+      } finally {
+        setExtracting(false);
       }
+    } else {
+      toast.error('Please upload a PDF or DOCX file');
     }
   };
 
@@ -212,12 +260,18 @@ export default function Notes() {
               <Label htmlFor="note-text">Content</Label>
               <Textarea
                 id="note-text"
-                placeholder="Paste your study material here..."
+                placeholder="Paste your study material here or upload a file above..."
                 value={noteText}
                 onChange={(e) => setNoteText(e.target.value)}
-                disabled={processing}
+                disabled={processing || extracting}
                 rows={8}
               />
+              {extracting && (
+                <p className="text-sm text-muted-foreground flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Extracting text from document...
+                </p>
+              )}
             </div>
 
             <div className="flex gap-4">
@@ -241,9 +295,9 @@ export default function Notes() {
               </div>
             </div>
 
-            <Button type="submit" className="w-full" disabled={processing}>
-              {processing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Process with AI
+            <Button type="submit" className="w-full" disabled={processing || extracting}>
+              {(processing || extracting) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {extracting ? 'Extracting Text...' : processing ? 'Processing with AI...' : 'Process with AI'}
             </Button>
           </form>
         </CardContent>
